@@ -1,6 +1,6 @@
 // Traduce al inglés los campos de texto libre de la ficha para armar el prompt.
 // Protege @Image1, @Image2, etc. con marcadores para que el modelo no los toque.
-const MODEL = process.env.TRANSLATE_MODEL || 'gemini-flash-latest';
+const MODEL = process.env.TRANSLATE_MODEL || 'gemini-3.5-flash-lite';
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const MAX_FIELDS = 20;
 const MAX_FIELD_CHARS = 4000;
