@@ -7,6 +7,12 @@ function falResultError(err) {
   const detail = Array.isArray(raw)
     ? raw.map(item => item?.msg || item?.message || String(item)).join('; ')
     : (typeof raw === 'string' ? raw : 'Error inesperado al obtener el resultado del video.');
+  if (/likenesses of real people|private information/i.test(detail)) {
+    return {
+      status: 422,
+      message: 'Seedance rechazó la referencia porque detectó la apariencia de una persona real o información privada. No se generó ningún video.'
+    };
+  }
   return {
     status: status >= 400 && status < 600 ? status : 500,
     message: detail.slice(0, 500)
