@@ -49,3 +49,17 @@ test('Fal video result preserves provider validation details', () => {
  assert.equal(normalized.message, 'The completed request did not produce a video.');
 });
 
+test('Fal video result explains real-person rejection in Spanish', () => {
+ const resultApi=fs.readFileSync(require.resolve('../api/fal-video-result.js'),'utf8');
+ const helper=resultApi.slice(resultApi.indexOf('function falResultError('),resultApi.indexOf('module.exports = async'));
+ const context={};
+ vm.createContext(context);vm.runInContext(helper,context);
+ const normalized=context.falResultError({
+  status:422,
+  body:{detail:'The images or videos provided may contain likenesses of real people or other private information that cannot be processed.'}
+ });
+ assert.equal(normalized.status,422);
+ assert.match(normalized.message,/persona real/);
+ assert.match(normalized.message,/No se generó ningún video/);
+});
+
