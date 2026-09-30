@@ -1,9 +1,8 @@
-// Fal.ai — genera una imagen desde texto o edita una imagen de referencia.
-const EDIT_ENDPOINT_ID = process.env.FAL_IMAGE_MODEL || 'fal-ai/flux-pro/kontext';
-const TEXT_ENDPOINT_ID = process.env.FAL_TEXT_IMAGE_MODEL || 'fal-ai/flux-pro/kontext/text-to-image';
+// Fal.ai — genera una imagen desde texto o edita una o varias referencias.
+const { selectImageModel, selectImageEndpoint } = require('../lib/fal-models');
 
 function selectEndpoint(hasReference) {
-  return hasReference ? EDIT_ENDPOINT_ID : TEXT_ENDPOINT_ID;
+  return selectImageEndpoint('flux-kontext', hasReference);
 }
 
 function falErrorDetails(err) {
@@ -25,6 +24,9 @@ function falErrorDetails(err) {
   if (status === 422 || /validation|required/i.test(detail)) {
     return { status: 422, message: `Fal.ai rechazó los datos enviados: ${detail.slice(0, 300)}` };
   }
+  if (/no permitido/i.test(detail)) {
+    return { status: 400, message: detail };
+  }
   return { status: status >= 400 && status < 600 ? status : 500, message: `Error de Fal.ai: ${detail.slice(0, 300)}` };
 }
 
@@ -42,7 +44,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { prompt, imageDataUrl } = req.body || {};
+  const { prompt, imageDataUrl, imageDataUrls, modelId = 'flux-kontext' } = req.body || {};
   if (!prompt) {
     res.status(400).json({ error: 'Falta el prompt.' });
     return;
@@ -57,19 +59,30 @@ module.exports = async function handler(req, res) {
   fal.config({ credentials: apiKey });
 
   try {
-    const input = { prompt };
-    if (imageDataUrl) {
-      const blob = dataUrlToBlob(imageDataUrl);
-      input.image_url = await fal.storage.upload(blob);
+    const model = selectImageModel(modelId);
+    const rawReferences = Array.isArray(imageDataUrls) && imageDataUrls.length
+      ? imageDataUrls
+      : (imageDataUrl ? [imageDataUrl] : []);
+    const references = rawReferences.slice(0, model.maxReferences);
+    const uploadedUrls = [];
+    for (const dataUrl of references) {
+      uploadedUrls.push(await fal.storage.upload(dataUrlToBlob(dataUrl)));
     }
 
-    const result = await fal.subscribe(selectEndpoint(Boolean(imageDataUrl)), { input, logs: false });
+    const input = { prompt };
+    if (uploadedUrls.length) {
+      input[model.referenceField] = model.referenceField === 'image_urls' ? uploadedUrls : uploadedUrls[0];
+    }
+    if (model.imageSize) input.image_size = model.imageSize;
+
+    const endpointId = selectImageEndpoint(modelId, uploadedUrls.length > 0);
+    const result = await fal.subscribe(endpointId, { input, logs: false });
     const imageUrl = result?.data?.images?.[0]?.url || result?.data?.image?.url;
     if (!imageUrl) {
       res.status(500).json({ error: 'Fal.ai no devolvió ninguna imagen.' });
       return;
     }
-    res.status(200).json({ imageUrl });
+    res.status(200).json({ imageUrl, modelId, endpointId });
   } catch (err) {
     const normalized = falErrorDetails(err);
     res.status(normalized.status).json({ error: normalized.message });
@@ -78,4 +91,3 @@ module.exports = async function handler(req, res) {
 
 module.exports.selectEndpoint = selectEndpoint;
 module.exports.falErrorDetails = falErrorDetails;
-

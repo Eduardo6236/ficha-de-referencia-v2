@@ -1,6 +1,5 @@
 const { fal } = require('@fal-ai/client');
-
-const ENDPOINT_ID = process.env.FAL_VIDEO_MODEL || 'fal-ai/kling-video/v3/pro/image-to-video';
+const { getVideoRoute } = require('../lib/fal-models');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -8,7 +7,7 @@ module.exports = async function handler(req, res) {
     return;
   }
 
-  const { requestId } = req.query || {};
+  const { requestId, routeKey } = req.query || {};
   if (!requestId) {
     res.status(400).json({ error: 'Falta el requestId.' });
     return;
@@ -22,7 +21,8 @@ module.exports = async function handler(req, res) {
   fal.config({ credentials: apiKey });
 
   try {
-    const result = await fal.queue.result(ENDPOINT_ID, { requestId });
+    const route = getVideoRoute(routeKey);
+    const result = await fal.queue.result(route.endpointId, { requestId });
     const videoUrl = result?.data?.video?.url;
     if (!videoUrl) {
       res.status(500).json({ error: 'El resultado de Fal.ai no incluyó un video.' });
@@ -30,7 +30,7 @@ module.exports = async function handler(req, res) {
     }
     res.status(200).json({ videoUrl });
   } catch (err) {
-    res.status(500).json({ error: err.message || 'Error inesperado al obtener el resultado del video.' });
+    const code = /no permitida/i.test(err.message || '') ? 400 : 500;
+    res.status(code).json({ error: err.message || 'Error inesperado al obtener el resultado del video.' });
   }
 };
-
