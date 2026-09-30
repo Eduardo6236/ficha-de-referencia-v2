@@ -6,18 +6,20 @@ const app=fs.readFileSync(require.resolve('../app.js'),'utf8');
 const source=app.slice(app.indexOf('async function startGeneration('),app.indexOf('async function urlToDataUrl('));
 for(const provider of ['meigen-image','fal-video']) test(`${provider} keeps selected options across screen rebuild`,async()=>{
  const f={id:'f',promptHistory:[],generations:[],promptDraft:{signature:'valid'}};
- const fields={'#promptText':{value:'English prompt'},'#meigenModel':{value:'nanobanana-2'},'#videoDuration':{value:'12'},'#videoAudio':{checked:true}};
+ const fields={'#promptText':{value:'English prompt'},'#meigenModel':{value:'nanobanana-2'},'#falImageModel':{value:'flux-kontext'},'#falVideoModel':{value:'seedance-2-5'},'#videoDuration':{value:'12'},'#videoResolution':{value:'1080p'},'#videoAudio':{checked:true}};
  let sent;
- const context={translating:false,activePromptDraft:f=>f.promptDraft,activePendingFor:()=>({}),generationMode:()=> 'single',secondFicha:()=>null,primaryReference:f=>f.referenceImages?.[0],generationSource:f=>f,MEIGEN_MODELS:[],promptSignature:()=> 'valid',$:id=>fields[id],uid:()=> 'g',now:()=> 'now',
+ const context={translating:false,activePromptDraft:f=>f.promptDraft,activePendingFor:()=>({}),generationMode:()=> 'single',generationOptions:()=>({falImageModel:'flux-kontext',falVideoModel:'kling-3-pro'}),secondFicha:()=>null,primaryReference:f=>f.referenceImages?.[0],generationSource:f=>f,MEIGEN_MODELS:[],promptSignature:()=> 'valid',$:id=>fields[id],uid:()=> 'g',now:()=> 'now',
  persist:async()=>{fields['#meigenModel'].value='seedream-5.0-pro';fields['#videoDuration'].value='5';fields['#videoAudio'].checked=false;},
- apiMeigenSubmit:async(f,p,m)=>{sent=m;return 'job';},apiFalVideoSubmit:async(f,p,d,a)=>{sent={d,a};return 'job';},
+ apiMeigenSubmit:async(f,p,m)=>{sent=m;return 'job';},apiFalVideoSubmit:async(f,p,options)=>{sent=options;return {requestId:'job',routeKey:'seedance-2-5-single'};},
  finishGeneration:async()=>{},pollMeigen:()=>{},pollFalVideo:()=>{},updatePromptStatus:()=>{},toast:()=>{}};
  vm.createContext(context);vm.runInContext(source,context);await context.startGeneration(f,provider);
- if(provider==='meigen-image')assert.equal(sent,'nanobanana-2');else assert.deepEqual(sent,{d:12,a:true});
+ if(provider==='meigen-image')assert.equal(sent,'nanobanana-2');else {
+  assert.equal(sent.modelId,'seedance-2-5');assert.equal(sent.durationSeconds,12);assert.equal(sent.generateAudio,true);assert.equal(sent.resolution,'1080p');
+ }
 });
 test('pending translation blocks generation before any API request',async()=>{
  let blocked=false;
- const context={translating:false,activePromptDraft:()=>({signature:'valid'}),activePendingFor:()=>({outfit:'azul'}),generationMode:()=> 'single',secondFicha:()=>null,primaryReference:()=>({}),updatePromptStatus:()=>{blocked=true;}};
+ const context={translating:false,activePromptDraft:()=>({signature:'valid'}),activePendingFor:()=>({outfit:'azul'}),generationMode:()=> 'single',generationOptions:()=>({falImageModel:'flux-kontext',falVideoModel:'kling-3-pro'}),secondFicha:()=>null,primaryReference:()=>({}),$:()=>null,updatePromptStatus:()=>{blocked=true;}};
  vm.createContext(context);vm.runInContext(source,context);await context.startGeneration({},'meigen-image');assert.equal(blocked,true);
 });
 
