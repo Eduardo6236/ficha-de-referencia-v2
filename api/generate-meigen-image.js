@@ -10,6 +10,16 @@ const ALLOWED_MODELS = new Set([
   'seedream-5.0-pro', 'gpt-image-2.5', 'gemini-3-pro-image-preview', 'nanobanana-2', 'midjourney-v8.1', 'grok-image'
 ]);
 
+function meigenErrorMessage(status, data) {
+  const detail = data?.error || data?.message || data?.code || '';
+  if (status === 401 || status === 403) return 'La clave MEIGEN_API_TOKEN no es válida o ya no tiene acceso. Actualízala en Vercel.';
+  if (status === 402 || /insufficient|credit|balance|payment/i.test(detail)) return 'La cuenta de MeiGen no tiene créditos suficientes.';
+  if (status === 429) return 'MeiGen está limitando temporalmente las solicitudes. Intenta de nuevo en unos minutos.';
+  if (status === 404 || /model.*not found|invalid model/i.test(detail)) return 'El modelo elegido ya no está disponible en MeiGen.';
+  const code = data?.code ? ` (${data.code})` : '';
+  return `Error de MeiGen${code}: ${detail || 'no devolvió generationId'}`;
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Método no permitido.' });
@@ -51,8 +61,8 @@ module.exports = async function handler(req, res) {
 
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.generationId) {
-      const detail = data.code ? ` (${data.code})` : '';
-      res.status(response.ok ? 500 : response.status).json({ error: `Error de MeiGen${detail}: ${data.error || 'no devolvió generationId'}` });
+      const status = response.ok ? 500 : response.status;
+      res.status(status).json({ error: meigenErrorMessage(status, data) });
       return;
     }
 
@@ -61,4 +71,6 @@ module.exports = async function handler(req, res) {
     res.status(500).json({ error: err.message || 'Error inesperado al contactar MeiGen.' });
   }
 };
+
+module.exports.meigenErrorMessage = meigenErrorMessage;
 
