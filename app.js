@@ -356,6 +356,20 @@ async function ensureSendableDataUrl(dataUrl) {
   return current;
 }
 
+// Mantiene el JSON por debajo del límite práctico de las funciones de Vercel.
+// Siempre conserva la primera referencia, que es la identidad principal.
+async function prepareReferencePayload(references, maxRefs, maxChars = 3_600_000) {
+  const prepared = [];
+  let usedChars = 0;
+  for (const reference of references.slice(0, maxRefs)) {
+    const dataUrl = await ensureSendableDataUrl(reference.dataUrl);
+    if (prepared.length && usedChars + dataUrl.length > maxChars) break;
+    prepared.push(dataUrl);
+    usedChars += dataUrl.length;
+  }
+  return prepared;
+}
+
 async function fileToDataUrl(file) {
   return ensureSendableDataUrl(await readAsDataUrl(file));
 }
@@ -396,6 +410,29 @@ function bindImagenesTab(f) {
 }
 
 // ---- Tab: Generar ----
+const FAL_IMAGE_MODELS = [
+  { id: 'flux-kontext', label: 'Flux Kontext', maxRefs: 1 },
+  { id: 'seedream-5-lite', label: 'Seedream 5.0 Lite', maxRefs: 10 },
+  { id: 'seedream-5-pro', label: 'Seedream 5.0 Pro', maxRefs: 10 }
+];
+const FAL_VIDEO_MODELS = [
+  { id: 'kling-3-pro', label: 'Kling 3.0 Pro', minDuration: 3, maxDuration: 15, resolutions: [] },
+  { id: 'seedance-2', label: 'Seedance 2.0', minDuration: 4, maxDuration: 15, resolutions: ['480p', '720p', '1080p', '4k'] },
+  { id: 'seedance-2-5', label: 'Seedance 2.5', minDuration: 4, maxDuration: 30, resolutions: ['480p', '720p', '1080p'] }
+];
+
+function generationOptions(f) {
+  const saved = f.generationOptions || {};
+  const duo = generationMode(f) === 'duo';
+  return {
+    falImageModel: saved.falImageModel || (duo ? 'seedream-5-pro' : 'flux-kontext'),
+    falVideoModel: saved.falVideoModel || (duo ? 'seedance-2-5' : 'kling-3-pro'),
+    videoDuration: Number(saved.videoDuration) || 5,
+    videoResolution: saved.videoResolution || '720p',
+    videoAudio: !!saved.videoAudio
+  };
+}
+
 function latestPromptFor(f, platform) {
   const items = (f.promptHistory || []).filter(p => p.platform === platform);
   return items.length ? items[items.length - 1].prompt : null;
@@ -440,6 +477,14 @@ function tabGenerar(f) {
   const secondOptions = state.fichas.filter(item => item.id !== f.id).map(item =>
     `<option value="${item.id}" ${duo.secondFichaId === item.id ? 'selected' : ''}>${esc(item.name)}${item.referenceImages?.length ? '' : ' · sin imagen'}</option>`).join('');
   const duoIncomplete = mode === 'duo' && (!second || !f.referenceImages.length || !second.referenceImages?.length);
+  const options = generationOptions(f);
+  const falImage = FAL_IMAGE_MODELS.find(model => model.id === options.falImageModel) || FAL_IMAGE_MODELS[0];
+  const falVideo = FAL_VIDEO_MODELS.find(model => model.id === options.falVideoModel) || FAL_VIDEO_MODELS[0];
+  const videoDuration = Math.min(falVideo.maxDuration, Math.max(falVideo.minDuration, options.videoDuration));
+  const videoResolutions = falVideo.resolutions.length ? falVideo.resolutions : ['default'];
+  const selectedResolution = videoResolutions.includes(options.videoResolution) ? options.videoResolution : videoResolutions[0];
+  const falImageUnsupported = mode === 'duo' && falImage.maxRefs < 2;
+  const falVideoUnsupported = mode === 'duo' && falVideo.id === 'kling-3-pro';
   const duoFields = mode === 'duo' ? `
     <div class="card duo-card">
       <h2>Escena con dos personajes</h2>
@@ -471,14 +516,14 @@ function tabGenerar(f) {
         <button type="button" data-generation-mode="single" class="${mode === 'single' ? 'active' : ''}">Un personaje</button>
         <button type="button" data-generation-mode="duo" class="${mode === 'duo' ? 'active' : ''}">Dos personajes</button>
       </div>
-      <p class="hint">${mode === 'duo' ? 'Cada ficha mantiene su propia identidad dentro de una sola imagen.' : 'Generación individual con la ficha seleccionada.'}</p>
+      <p class="hint">${mode === 'duo' ? 'Cada ficha mantiene su propia identidad dentro de una misma escena.' : 'Generación individual con la ficha seleccionada.'}</p>
     </div>
     ${duoFields}
     <div class="card promptbox">
       <h2>Prompt</h2>
       <div class="form-grid">
         <label class="field"><span>Plantilla para plataforma</span><select id="promptPlatform">
-          ${[['nano-banana', 'Nano Banana'], ['fal-image', 'Fal.ai (imagen)'], ['openai-image', 'ChatGPT (imagen)'], ['meigen-image', 'MeiGen (imagen)'], ['fal-video', 'Fal.ai / Kling (video)'], ['higgsfield', 'Higgsfield'], ['veo', 'Veo'], ['other', 'Otra plataforma']].map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}
+          ${[['nano-banana', 'Nano Banana'], ['fal-image', 'Fal.ai (imagen)'], ['openai-image', 'ChatGPT (imagen)'], ['meigen-image', 'MeiGen (imagen)'], ['fal-video', 'Fal.ai (video)'], ['higgsfield', 'Higgsfield'], ['veo', 'Veo'], ['other', 'Otra plataforma']].map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}
         </select></label>
         <div class="field" style="align-self:end"><button type="button" id="regenPrompt">↻ Actualizar y traducir prompt</button></div>
       </div>
@@ -493,7 +538,14 @@ function tabGenerar(f) {
       ${duoIncomplete ? '<p class="validation-note">Para generar con dos personajes, ambas fichas deben estar seleccionadas y tener una imagen principal.</p>' : ''}
       <div class="gen-providers">
         <button class="provider-btn" data-generate="nano-banana" ${f.locked || noRefs ? 'disabled' : ''}><b>Nano Banana</b><small>Imagen · Gemini</small></button>
-        <button class="provider-btn" data-generate="fal-image" ${f.locked || noRefs || mode === 'duo' ? 'disabled' : ''}><b>Fal.ai</b><small>${mode === 'duo' ? 'Este modelo admite una sola referencia' : 'Imagen'}</small></button>
+        <div class="provider-btn provider-config" style="gap:8px">
+          <b>Fal.ai</b><small>Imagen · Flux o Seedream</small>
+          <label class="field"><span>Modelo</span><select id="falImageModel">
+            ${FAL_IMAGE_MODELS.map(model => `<option value="${model.id}" ${model.id === falImage.id ? 'selected' : ''}>${model.label}</option>`).join('')}
+          </select></label>
+          <small id="falImageNote">${falImageUnsupported ? 'Para dos personajes elige Seedream.' : falImage.id.startsWith('seedream') ? 'Seedream admite hasta 10 referencias.' : 'Flux usa una sola referencia.'}</small>
+          <button data-generate="fal-image" ${f.locked || noRefs || falImageUnsupported ? 'disabled' : ''}>Generar imagen</button>
+        </div>
         <button class="provider-btn" data-generate="openai-image" ${f.locked || noRefs ? 'disabled' : ''}><b>OpenAI</b><small>Imagen · GPT Image 2.5</small></button>
         <div class="provider-btn" style="gap:8px">
           <b>MeiGen</b><small>Imagen · varios modelos</small>
@@ -502,11 +554,21 @@ function tabGenerar(f) {
           </select></label>
           <button data-generate="meigen-image" ${f.locked || noRefs ? 'disabled' : ''}>Generar imagen</button>
         </div>
-        <div class="provider-btn" style="gap:8px">
-          <b>Fal.ai / Kling</b><small>Video desde imagen</small>
-          <label class="field" style="margin-top:4px"><span>Duración (seg)</span><input id="videoDuration" type="number" min="3" max="15" value="5" style="width:70px"></label>
-          <label style="display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted)"><input id="videoAudio" type="checkbox"> Generar audio</label>
-          <button data-generate="fal-video" ${f.locked || noRefs || mode === 'duo' ? 'disabled' : ''}>Generar video</button>
+        <div class="provider-btn provider-config" style="gap:8px">
+          <b>Fal.ai</b><small>Video · Kling o Seedance</small>
+          <label class="field"><span>Modelo</span><select id="falVideoModel">
+            ${FAL_VIDEO_MODELS.map(model => `<option value="${model.id}" ${model.id === falVideo.id ? 'selected' : ''}>${model.label}</option>`).join('')}
+          </select></label>
+          <div class="provider-options-row">
+            <label class="field"><span>Duración (seg)</span><input id="videoDuration" type="number" min="${falVideo.minDuration}" max="${falVideo.maxDuration}" value="${videoDuration}"></label>
+            <label class="field"><span>Resolución</span><select id="videoResolution">
+              ${videoResolutions.map(value => `<option value="${value}" ${value === selectedResolution ? 'selected' : ''}>${value === 'default' ? 'Del modelo' : value}</option>`).join('')}
+            </select></label>
+          </div>
+          <label class="provider-check"><input id="videoAudio" type="checkbox" ${options.videoAudio ? 'checked' : ''}> Generar audio</label>
+          <small id="falVideoNote">${falVideoUnsupported ? 'Para dos personajes elige Seedance.' : falVideo.id.startsWith('seedance') ? 'Seedance puede usar las dos fichas.' : 'Kling usa una sola imagen inicial.'}</small>
+          <button data-generate="fal-video" ${f.locked || noRefs || falVideoUnsupported ? 'disabled' : ''}>Generar video</button>
+          <small>Se descuenta de tus créditos de Fal.ai según el modelo, la duración y la resolución.</small>
         </div>
       </div>
     </div>
@@ -596,7 +658,10 @@ function updatePromptStatus(f, message) {
     ? 'Prompt pendiente de actualizar. Pulsa «Actualizar y traducir prompt».'
     : 'Prompt actualizado en inglés. Puedes revisarlo y editarlo antes de generar.');
   $$('[data-generate]').forEach(btn => {
-    const unsupportedDuo = generationMode(f) === 'duo' && ['fal-image', 'fal-video'].includes(btn.dataset.generate);
+    const unsupportedDuo = generationMode(f) === 'duo' && (
+      (btn.dataset.generate === 'fal-image' && ($('#falImageModel')?.value || generationOptions(f).falImageModel) === 'flux-kontext') ||
+      (btn.dataset.generate === 'fal-video' && ($('#falVideoModel')?.value || generationOptions(f).falVideoModel) === 'kling-3-pro')
+    );
     btn.disabled = translating || pending || stale || f.locked || missingRefs || unsupportedDuo;
   });
 }
@@ -664,6 +729,27 @@ function bindGenerarTab(f) {
     const active = activePromptDraft(f);
     if (active) { active.platform = e.target.value; DB.put('fichas', f); }
   };
+  const saveGenerationOption = (key, value) => {
+    f.generationOptions = { ...(f.generationOptions || {}), [key]: value };
+    f.updatedAt = now();
+    return DB.put('fichas', f);
+  };
+  const falImageSelect = $('#falImageModel');
+  if (falImageSelect) falImageSelect.onchange = async e => {
+    await saveGenerationOption('falImageModel', e.target.value);
+    renderWorkspace();
+  };
+  const falVideoSelect = $('#falVideoModel');
+  if (falVideoSelect) falVideoSelect.onchange = async e => {
+    await saveGenerationOption('falVideoModel', e.target.value);
+    renderWorkspace();
+  };
+  const videoDuration = $('#videoDuration');
+  if (videoDuration) videoDuration.onchange = e => saveGenerationOption('videoDuration', Number(e.target.value));
+  const videoResolution = $('#videoResolution');
+  if (videoResolution) videoResolution.onchange = e => saveGenerationOption('videoResolution', e.target.value);
+  const videoAudio = $('#videoAudio');
+  if (videoAudio) videoAudio.onchange = e => saveGenerationOption('videoAudio', e.target.checked);
   updatePromptStatus(f);
   if (!activePromptDraft(f) && (generationMode(f) === 'single' || secondFicha(f))) regeneratePrompt(f, { automatic: true });
   $$('[data-generate]').forEach(btn => btn.onclick = () => startGeneration(f, btn.dataset.generate));
@@ -705,17 +791,25 @@ async function apiNanoBanana(f, prompt) {
   const data = await callApi('/api/generate-image', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, referenceImages }) });
   return `data:${data.mimeType};base64,${data.imageBase64}`;
 }
-async function apiFalImage(f, prompt) {
-  const primary = f.referenceImages.find(r => r.isPrimary) || f.referenceImages[0];
-  const imageDataUrl = primary && await ensureSendableDataUrl(primary.dataUrl);
-  const data = await callApi('/api/generate-fal-image', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, imageDataUrl }) });
+async function apiFalImage(f, prompt, modelId) {
+  const model = FAL_IMAGE_MODELS.find(item => item.id === modelId) || FAL_IMAGE_MODELS[0];
+  const ordered = [...f.referenceImages].sort((a, b) => Number(!!b.isPrimary) - Number(!!a.isPrimary));
+  const imageDataUrls = await prepareReferencePayload(ordered, model.maxRefs);
+  const data = await callApi('/api/generate-fal-image', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, imageDataUrls, modelId: model.id }) });
   return toLocalDataUrl(data.imageUrl);
 }
-async function apiFalVideoSubmit(f, prompt, durationSeconds, generateAudio) {
-  const primary = f.referenceImages.find(r => r.isPrimary) || f.referenceImages[0];
-  const imageDataUrl = primary && await ensureSendableDataUrl(primary.dataUrl);
-  const data = await callApi('/api/generate-fal-video', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt, imageDataUrl, durationSeconds, generateAudio }) });
-  return data.requestId;
+async function apiFalVideoSubmit(f, prompt, { modelId, durationSeconds, generateAudio, resolution, referenceNames = [] }) {
+  const ordered = [...f.referenceImages].sort((a, b) => Number(!!b.isPrimary) - Number(!!a.isPrimary));
+  const references = generationMode(f) === 'duo' ? ordered.slice(0, 2) : ordered.slice(0, 1);
+  const imageDataUrls = await Promise.all(references.map(r => ensureSendableDataUrl(r.dataUrl)));
+  const mappedPrompt = imageDataUrls.length > 1 && modelId.startsWith('seedance')
+    ? `Reference mapping: @Image1 is Character A${referenceNames[0] ? ` (${referenceNames[0]})` : ''}; @Image2 is Character B${referenceNames[1] ? ` (${referenceNames[1]})` : ''}.\n\n${prompt}`
+    : prompt;
+  return callApi('/api/generate-fal-video', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ prompt: mappedPrompt, imageDataUrls, modelId, durationSeconds, generateAudio, resolution })
+  });
 }
 async function apiOpenAiImage(f, prompt) {
   // La referencia principal se envía primero: es la identidad autoritativa.
@@ -789,11 +883,12 @@ async function finishGeneration(fichaId, genId, patch) {
   if (state.fichaId === fichaId) await refresh();
 }
 
-async function pollFalVideo(fichaId, genId, requestId) {
+async function pollFalVideo(fichaId, genId, requestId, routeKey) {
   try {
-    const statusData = await callApi(`/api/fal-video-status?requestId=${encodeURIComponent(requestId)}`);
+    const routeQuery = routeKey ? `&routeKey=${encodeURIComponent(routeKey)}` : '';
+    const statusData = await callApi(`/api/fal-video-status?requestId=${encodeURIComponent(requestId)}${routeQuery}`);
     if (statusData.status === 'COMPLETED') {
-      const resultData = await callApi(`/api/fal-video-result?requestId=${encodeURIComponent(requestId)}`);
+      const resultData = await callApi(`/api/fal-video-result?requestId=${encodeURIComponent(requestId)}${routeQuery}`);
       const resultUrl = await toLocalDataUrl(resultData.videoUrl);
       await finishGeneration(fichaId, genId, { status: 'done', resultUrl });
       return;
@@ -802,7 +897,7 @@ async function pollFalVideo(fichaId, genId, requestId) {
       await finishGeneration(fichaId, genId, { status: 'error', error: 'La generación de video falló en Fal.ai.' });
       return;
     }
-    setTimeout(() => pollFalVideo(fichaId, genId, requestId), 5000);
+    setTimeout(() => pollFalVideo(fichaId, genId, requestId, routeKey), 5000);
   } catch (err) {
     await finishGeneration(fichaId, genId, { status: 'error', error: err.message });
   }
@@ -815,10 +910,10 @@ async function startGeneration(f, provider) {
     updatePromptStatus(f, 'Selecciona dos fichas que tengan una imagen principal.');
     return;
   }
-  if (generationMode(f) === 'duo' && ['fal-image', 'fal-video'].includes(provider)) {
-    toast('Este proveedor usa una sola referencia y no puede separar dos identidades.');
-    return;
-  }
+  const falImageModelId = $('#falImageModel')?.value || generationOptions(f).falImageModel;
+  const falVideoModelId = $('#falVideoModel')?.value || generationOptions(f).falVideoModel;
+  if (generationMode(f) === 'duo' && provider === 'fal-image' && falImageModelId === 'flux-kontext') return toast('Para dos personajes elige Seedream en Fal.ai.');
+  if (generationMode(f) === 'duo' && provider === 'fal-video' && falVideoModelId === 'kling-3-pro') return toast('Para dos personajes elige Seedance en Fal.ai.');
   if (translating || Object.keys(activePendingFor(f)).length || draft?.signature !== promptSignature(f)) {
     updatePromptStatus(f, 'Actualiza y traduce el prompt antes de generar.');
     return;
@@ -831,11 +926,13 @@ async function startGeneration(f, provider) {
   }
   const duration = +($('#videoDuration')?.value || 5);
   const audio = !!$('#videoAudio')?.checked;
+  const resolution = $('#videoResolution')?.value || '720p';
   const prompt = $('#promptText').value.trim();
   if (!prompt) return toast('Escribe un prompt primero');
   const platformTag = provider === 'fal-video' ? 'fal-video' : provider;
   f.promptHistory.push({ id: uid(), platform: platformTag, prompt, createdAt: now() });
-  const gen = { id: uid(), provider, prompt, mode: generationMode(f), secondFichaId: second?.id, secondFichaName: second?.name, kind: provider === 'fal-video' ? 'video' : 'image', status: 'working', createdAt: now() };
+  const selectedModel = provider === 'fal-image' ? falImageModelId : provider === 'fal-video' ? falVideoModelId : provider === 'meigen-image' ? modelId : undefined;
+  const gen = { id: uid(), provider, model: selectedModel, prompt, mode: generationMode(f), secondFichaId: second?.id, secondFichaName: second?.name, kind: provider === 'fal-video' ? 'video' : 'image', status: 'working', createdAt: now() };
   f.generations.push(gen);
   await persist(f);
 
@@ -846,7 +943,7 @@ async function startGeneration(f, provider) {
       const resultUrl = await apiNanoBanana(source, prompt);
       await finishGeneration(fichaId, genId, { status: 'done', resultUrl });
     } else if (provider === 'fal-image') {
-      const resultUrl = await apiFalImage(source, prompt);
+      const resultUrl = await apiFalImage(source, prompt, falImageModelId);
       await finishGeneration(fichaId, genId, { status: 'done', resultUrl });
     } else if (provider === 'openai-image') {
       const resultUrl = await apiOpenAiImage(source, prompt);
@@ -856,9 +953,15 @@ async function startGeneration(f, provider) {
       await finishGeneration(fichaId, genId, { generationId, model: modelId });
       pollMeigen(fichaId, genId, generationId);
     } else if (provider === 'fal-video') {
-      const requestId = await apiFalVideoSubmit(source, prompt, duration, audio);
-      await finishGeneration(fichaId, genId, { requestId });
-      pollFalVideo(fichaId, genId, requestId);
+      const submission = await apiFalVideoSubmit(source, prompt, {
+        modelId: falVideoModelId,
+        durationSeconds: duration,
+        generateAudio: audio,
+        resolution,
+        referenceNames: [f.name, second?.name]
+      });
+      await finishGeneration(fichaId, genId, { requestId: submission.requestId, routeKey: submission.routeKey });
+      pollFalVideo(fichaId, genId, submission.requestId, submission.routeKey);
     }
   } catch (err) {
     await finishGeneration(fichaId, genId, { status: 'error', error: err.message });
@@ -897,9 +1000,19 @@ async function useGenerationAsReference(f, genId) {
 }
 
 function providerLabel(g) {
-  if (g.provider !== 'meigen-image') return g.provider;
-  const model = MEIGEN_MODELS.find(m => m.id === g.model);
-  return `MeiGen · ${model ? model.label : g.model || 'modelo por defecto'}`;
+  if (g.provider === 'meigen-image') {
+    const model = MEIGEN_MODELS.find(m => m.id === g.model);
+    return `MeiGen · ${model ? model.label : g.model || 'modelo por defecto'}`;
+  }
+  if (g.provider === 'fal-image') {
+    const model = FAL_IMAGE_MODELS.find(m => m.id === g.model);
+    return `Fal.ai · ${model ? model.label : g.model || 'Imagen'}`;
+  }
+  if (g.provider === 'fal-video') {
+    const model = FAL_VIDEO_MODELS.find(m => m.id === g.model);
+    return `Fal.ai · ${model ? model.label : g.model || 'Video'}`;
+  }
+  return g.provider;
 }
 
 // Visor a tamaño completo (la miniatura de la tarjeta va recortada con object-fit:cover).

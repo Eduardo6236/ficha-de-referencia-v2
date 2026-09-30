@@ -16,9 +16,12 @@ La edición, el guardado local y los prompts con traducciones ya guardadas funci
 - Borrador de prompt persistente. Actualizar solicita confirmación antes de reemplazar ediciones manuales.
 - Aviso al salir de la pestaña Ficha con cambios sin guardar.
 - Modelo de MeiGen, duración y audio capturados antes de reconstruir los controles.
+- Fal.ai permite elegir Flux Kontext, Seedream 5.0 Lite o Seedream 5.0 Pro para imágenes. Seedream admite hasta diez referencias y funciona en escenas de dos personajes.
+- Fal.ai permite elegir Kling 3.0 Pro, Seedance 2.0 o Seedance 2.5 para video. Seedance usa la imagen principal de cada ficha en el modo de dos personajes.
+- Los controles de Seedance ajustan la duración y resolución permitidas por cada modelo. Todas estas generaciones consumen los créditos pay as you go de la misma cuenta Fal.ai.
 - OpenAI usa GPT Image 2.5 Sunburst con calidad alta y envía primero la referencia marcada como Principal. Se puede cambiar con OPENAI_IMAGE_MODEL y OPENAI_IMAGE_QUALITY.
 - Modo «Dos personajes»: combina dos fichas guardadas en una sola escena, usa una imagen principal por persona y traduce al inglés el escenario, la interacción, las posiciones, el vestuario opcional y las indicaciones adicionales.
-- Nano Banana, OpenAI y los modelos de MeiGen que aceptan al menos dos referencias están habilitados en el modo combinado. Fal.ai imagen/video queda desactivado porque la integración actual acepta una sola referencia.
+- Nano Banana, OpenAI, Seedream y los modelos de MeiGen que aceptan al menos dos referencias están habilitados en el modo combinado. Seedance también admite las dos referencias para video; Flux Kontext y Kling requieren una sola.
 - Base de datos local y caché independientes de la versión original.
 
 ## Traer tus fichas
@@ -33,5 +36,4 @@ El PDF en docs corresponde a la versión anterior; esta guía describe los cambi
 
 ## Comprobación
 
-`npm test` ejecuta las pruebas. La versión actual pasa 25 pruebas; son pruebas simuladas que no consumen servicios de IA.
-
+`npm test` ejecuta las pruebas. La versión actual pasa 30 pruebas; son pruebas simuladas que no consumen servicios de IA.
