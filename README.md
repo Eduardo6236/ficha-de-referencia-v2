@@ -1,12 +1,12 @@
 # Ficha de Referencia 2.0
 
-Copia independiente de Eduardo6236/ficha-de-referencia, basada en c454bc73dc310e9da878ba58d209bb8fd5e25a83. No está vinculada al repositorio ni al proyecto Vercel originales.
+Copia independiente de Eduardo6236/ficha-de-referencia, basada en c454bc73dc310e9da878ba58d209bb8fd5e25a83. Usa su propio repositorio y su propio proyecto de Vercel; la versión original permanece intacta.
 
 ## Abrir
 
 Con Node.js instalado, haz doble clic en INICIAR.cmd y abre http://127.0.0.1:4174. Mantén abierta esa ventana mientras uses la aplicación.
 
-La edición, el guardado local y los prompts con traducciones ya guardadas funcionan sin claves. Para traducción nueva se necesita GEMINI_API_KEY en el entorno del servidor. Las generaciones requieren las claves de sus proveedores y, para Fal, instalar las dependencias con `npm install`. No se incluyen ni se copiaron claves privadas.
+La edición, el guardado local y los prompts con traducciones ya guardadas funcionan sin claves. Para traducción nueva se necesita GEMINI_API_KEY en el entorno del servidor. Las generaciones requieren las claves de sus proveedores y, para Fal, instalar las dependencias con `npm install`. Las claves de producción se guardan como secretos en Vercel y no se incluyen en el repositorio.
 
 ## Cambios
 
@@ -27,11 +27,11 @@ En la aplicación original usa Exportar todo. En esta versión usa Importar para
 
 ## Publicación separada
 
-Para usar traducción y generación desde teléfono/computadora, crea un repositorio y proyecto Vercel nuevos con estos archivos, y configura allí las variables de entorno. No vincules esta carpeta al proyecto Vercel original. Esta entrega no está publicada.
+La versión 2.0 está publicada de forma independiente en https://ficha-de-referencia-v2.vercel.app y conectada al repositorio https://github.com/Eduardo6236/ficha-de-referencia-v2. Los cambios enviados a `main` generan nuevas publicaciones sin modificar el proyecto original.
 
 El PDF en docs corresponde a la versión anterior; esta guía describe los cambios de 2.0.
 
 ## Comprobación
 
-`npm test` ejecuta las pruebas. Las pruebas simuladas no consumen servicios de IA ni prueban la configuración de un futuro despliegue.
+`npm test` ejecuta las pruebas. La versión actual pasa 25 pruebas; son pruebas simuladas que no consumen servicios de IA.
 
