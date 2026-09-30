@@ -36,3 +36,16 @@ test('OpenAI sends the principal identity reference first', async () => {
  assert.deepEqual(request.body.referenceImages,['principal','second','third']);
 });
 
+test('Fal video result preserves provider validation details', () => {
+ const resultApi=fs.readFileSync(require.resolve('../api/fal-video-result.js'),'utf8');
+ const helper=resultApi.slice(resultApi.indexOf('function falResultError('),resultApi.indexOf('module.exports = async'));
+ const context={};
+ vm.createContext(context);vm.runInContext(helper,context);
+ const normalized = context.falResultError({
+  status: 422,
+  body: { detail: [{ msg: 'The completed request did not produce a video.' }] }
+ });
+ assert.equal(normalized.status, 422);
+ assert.equal(normalized.message, 'The completed request did not produce a video.');
+});
+
