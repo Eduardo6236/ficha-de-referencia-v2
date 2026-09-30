@@ -7,6 +7,19 @@ function supportsInputFidelity(model) {
   return model === 'gpt-image-1' || model === 'gpt-image-1.5';
 }
 
+function openAiErrorMessage(status, body) {
+  let detail = body;
+  try {
+    const parsed = JSON.parse(body);
+    detail = parsed?.error?.message || parsed?.error?.code || body;
+  } catch { /* OpenAI can occasionally return a plain-text gateway error. */ }
+  if (status === 401 || status === 403) return 'La clave OPENAI_API_KEY no es válida o ya no tiene acceso. Actualízala en Vercel.';
+  if (status === 429 && /quota|billing|credit/i.test(detail)) return 'La cuenta de OpenAI no tiene saldo o cuota disponible.';
+  if (status === 429) return 'OpenAI está limitando temporalmente las solicitudes. Intenta de nuevo en unos minutos.';
+  if (status === 404 || /model.*not found|does not exist/i.test(detail)) return `El modelo configurado en OpenAI no está disponible: ${MODEL}.`;
+  return `Error de la API de OpenAI: ${String(detail).slice(0, 300)}`;
+}
+
 function dataUrlToBlob(dataUrl) {
   const match = dataUrl.match(/^data:(.*?);base64,(.*)$/);
   if (!match) throw new Error('Imagen de referencia inválida.');
@@ -63,7 +76,7 @@ module.exports = async function handler(req, res) {
 
     if (!response.ok) {
       const errBody = await response.text();
-      res.status(response.status).json({ error: `Error de la API de OpenAI: ${errBody.slice(0, 500)}` });
+      res.status(response.status).json({ error: openAiErrorMessage(response.status, errBody) });
       return;
     }
 
@@ -81,4 +94,5 @@ module.exports = async function handler(req, res) {
 };
 
 module.exports.supportsInputFidelity = supportsInputFidelity;
+module.exports.openAiErrorMessage = openAiErrorMessage;
 
